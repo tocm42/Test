@@ -101,3 +101,97 @@ export function formatDate(iso: string): string {
 }
 
 export { WEEK_MS };
+
+// ---- External store (for useSyncExternalStore) ----------------------------
+//
+// A tiny localStorage-backed store. Using useSyncExternalStore keeps loading
+// SSR-safe and lint-clean (no setState-in-effect), and gives cross-tab sync.
+
+let memState: AppState | null = null;
+const listeners = new Set<() => void>();
+const SERVER_SNAPSHOT = defaultState();
+
+export function subscribe(callback: () => void): () => void {
+  listeners.add(callback);
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === STORAGE_KEY) {
+      memState = loadState();
+      callback();
+    }
+  };
+  window.addEventListener("storage", onStorage);
+  return () => {
+    listeners.delete(callback);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
+export function getSnapshot(): AppState {
+  if (memState === null) memState = loadState();
+  return memState;
+}
+
+export function getServerSnapshot(): AppState {
+  return SERVER_SNAPSHOT;
+}
+
+function mutate(updater: (state: AppState) => AppState): void {
+  memState = updater(getSnapshot());
+  saveState(memState);
+  listeners.forEach((l) => l());
+}
+
+export function addEntryAction(
+  kid: KidName,
+  type: Exclude<Entry["type"], "allowance">,
+  amount: number,
+  reason: string,
+  note: string,
+): void {
+  mutate((prev) => ({
+    ...prev,
+    entries: {
+      ...prev.entries,
+      [kid]: [
+        { id: uid(), type, amount: round2(amount), reason, note, date: new Date().toISOString() },
+        ...prev.entries[kid],
+      ],
+    },
+  }));
+}
+
+export function payAllowanceAction(kid: KidName): void {
+  mutate((prev) => {
+    const due = weeksDue(prev, kid);
+    const weekly = Number(prev.settings.weekly[kid]) || 0;
+    if (due <= 0 || weekly <= 0) return prev;
+
+    const total = round2(weekly * due);
+    const label = due === 1 ? "Weekly allowance" : `Weekly allowance (${due} weeks)`;
+    // Advance the clock by the whole weeks paid so partial weeks aren't lost.
+    const base = prev.lastAllowance[kid] ? new Date(prev.lastAllowance[kid] as string).getTime() : Date.now();
+
+    return {
+      ...prev,
+      lastAllowance: { ...prev.lastAllowance, [kid]: new Date(base + due * WEEK_MS).toISOString() },
+      entries: {
+        ...prev.entries,
+        [kid]: [
+          { id: uid(), type: "allowance", amount: total, reason: label, note: "", date: new Date().toISOString() },
+          ...prev.entries[kid],
+        ],
+      },
+    };
+  });
+}
+
+export function deleteEntryAction(kid: KidName, id: string): void {
+  mutate((prev) => ({
+    ...prev,
+    entries: { ...prev.entries, [kid]: prev.entries[kid].filter((e) => e.id !== id) },
+  }));
+}
+
+export function updateSettingsAction(currency: string, weekly: Record<KidName, number>): void {
+  mutate((prev) => ({ ...prev, settings: { currency: currency || "£", weekly } }));
+}
