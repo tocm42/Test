@@ -9,7 +9,7 @@ import {
   type SupabaseClient,
 } from "@supabase/supabase-js";
 import type { AppState } from "./types";
-import { applyRemoteState, defaultState, getSnapshot, setRemotePush } from "./store";
+import { applyRemoteState, getSnapshot, migrate, setRemotePush } from "./store";
 import { decryptJSON, encryptJSON } from "./crypto";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -54,23 +54,6 @@ let channel: RealtimeChannel | null = null;
 let lastWritten: string | null = null; // ciphertext we wrote, to ignore our own echo
 let pushTimer: ReturnType<typeof setTimeout> | null = null;
 
-/** Re-shape a decoded blob against defaults so missing fields can't crash us. */
-function normalize(state: Partial<AppState>): AppState {
-  const base = defaultState();
-  return {
-    settings: {
-      ...base.settings,
-      ...state.settings,
-      weekly: { ...base.settings.weekly, ...state.settings?.weekly },
-    },
-    lastAllowance: { ...state.lastAllowance },
-    entries: {
-      Sebastian: state.entries?.Sebastian ?? [],
-      Oscar: state.entries?.Oscar ?? [],
-    },
-  };
-}
-
 async function pushNow(state: AppState): Promise<void> {
   const c = getClient();
   if (!c || !pin) return;
@@ -104,7 +87,7 @@ function subscribeRealtime(c: SupabaseClient): void {
         const encrypted = (payload.new as { data?: string } | null)?.data;
         if (!encrypted || !pin || encrypted === lastWritten) return;
         void decryptJSON<AppState>(encrypted, pin)
-          .then((state) => applyRemoteState(normalize(state)))
+          .then((state) => applyRemoteState(migrate(state)))
           .catch(() => {
             /* a payload we can't decrypt (e.g. PIN changed elsewhere) — ignore */
           });
@@ -139,7 +122,7 @@ export async function connect(
       }
       pin = enteredPin;
       lastWritten = data.data;
-      applyRemoteState(normalize(state));
+      applyRemoteState(migrate(state));
     } else {
       // First device to connect: seed the cloud from whatever is on this device.
       pin = enteredPin;

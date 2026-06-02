@@ -1,12 +1,13 @@
 import { useSyncExternalStore } from "react";
 import {
   addEntryAction,
+  applySettingsAction,
   deleteEntryAction,
+  editEntryAction,
   getServerSnapshot,
   getSnapshot,
   payAllowanceAction,
   subscribe,
-  updateSettingsAction,
 } from "./store";
 import { getStatus, type SyncStatus, subscribeStatus } from "./sync";
 
@@ -35,8 +36,9 @@ export function usePocketMoney() {
     state,
     hydrated,
     addEntry: addEntryAction,
+    editEntry: editEntryAction,
     payAllowance: payAllowanceAction,
     deleteEntry: deleteEntryAction,
-    updateSettings: updateSettingsAction,
+    applySettings: applySettingsAction,
   };
 }

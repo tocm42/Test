@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { KidName } from "./lib/types";
-import { KIDS } from "./lib/store";
+import type { Entry } from "./lib/types";
 import { usePocketMoney, useSyncStatus } from "./lib/usePocketMoney";
 import { initSync } from "./lib/sync";
 import KidCard from "./components/KidCard";
@@ -19,9 +18,15 @@ const SYNC_BADGE: Record<string, { label: string; className: string } | null> = 
 };
 
 export default function Home() {
-  const { state, hydrated, addEntry, payAllowance, deleteEntry, updateSettings } = usePocketMoney();
+  const { state, hydrated, addEntry, editEntry, payAllowance, deleteEntry, applySettings } =
+    usePocketMoney();
   const syncStatus = useSyncStatus();
-  const [entryModal, setEntryModal] = useState<{ kid: KidName; type: "bonus" | "spend" } | null>(null);
+  const [entryModal, setEntryModal] = useState<{
+    kidId: string;
+    kidName: string;
+    type: "bonus" | "spend";
+    entry?: Entry;
+  } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
 
   // Reconnect to the cloud on load if this device remembers the PIN.
@@ -70,15 +75,23 @@ export default function Home() {
       <main className="mx-auto max-w-4xl px-4 pb-12">
         {/* Render only after hydration so localStorage data isn't flashed/mismatched. */}
         <div className={`grid gap-5 sm:grid-cols-2 ${hydrated ? "" : "opacity-0"}`}>
-          {KIDS.map((kid) => (
+          {state.kids.map((kid) => (
             <KidCard
-              key={kid.name}
+              key={kid.id}
               kid={kid}
               state={state}
-              onPayAllowance={() => payAllowance(kid.name)}
-              onBonus={() => setEntryModal({ kid: kid.name, type: "bonus" })}
-              onSpend={() => setEntryModal({ kid: kid.name, type: "spend" })}
-              onDelete={(id) => deleteEntry(kid.name, id)}
+              onPayAllowance={() => payAllowance(kid.id)}
+              onBonus={() => setEntryModal({ kidId: kid.id, kidName: kid.name, type: "bonus" })}
+              onSpend={() => setEntryModal({ kidId: kid.id, kidName: kid.name, type: "spend" })}
+              onEdit={(entry) =>
+                setEntryModal({
+                  kidId: kid.id,
+                  kidName: kid.name,
+                  type: entry.type === "spend" ? "spend" : "bonus",
+                  entry,
+                })
+              }
+              onDelete={(id) => deleteEntry(kid.id, id)}
             />
           ))}
         </div>
@@ -86,12 +99,25 @@ export default function Home() {
 
       {entryModal && (
         <EntryModal
-          kid={entryModal.kid}
+          kidName={entryModal.kidName}
           type={entryModal.type}
           currency={state.settings.currency}
+          initial={
+            entryModal.entry
+              ? {
+                  amount: entryModal.entry.amount,
+                  reason: entryModal.entry.reason,
+                  note: entryModal.entry.note,
+                }
+              : undefined
+          }
           onClose={() => setEntryModal(null)}
           onSubmit={(amount, reason, note) => {
-            addEntry(entryModal.kid, entryModal.type, amount, reason, note);
+            if (entryModal.entry) {
+              editEntry(entryModal.kidId, entryModal.entry.id, amount, reason, note);
+            } else {
+              addEntry(entryModal.kidId, entryModal.type, amount, reason, note);
+            }
             setEntryModal(null);
           }}
         />
@@ -101,8 +127,8 @@ export default function Home() {
         <SettingsModal
           state={state}
           onClose={() => setShowSettings(false)}
-          onSave={(currency, weekly) => {
-            updateSettings(currency, weekly);
+          onSave={(next) => {
+            applySettings(next);
             setShowSettings(false);
           }}
           onExport={handleExport}

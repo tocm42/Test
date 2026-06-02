@@ -1,11 +1,17 @@
-import type { AppState, Entry, KidName, Settings } from "./types";
+import type { AppState, Entry, Goal, Kid, KidId, Settings } from "./types";
 
 export const STORAGE_KEY = "pocketMoney.v1";
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
-export const KIDS: { name: KidName; emoji: string; color: string }[] = [
-  { name: "Sebastian", emoji: "🦊", color: "#4f46e5" },
-  { name: "Oscar", emoji: "🐻", color: "#0891b2" },
+/** Seed children for a brand-new install. Their ids match the original names so
+ * data created before kids were configurable migrates without any loss. */
+export const DEFAULT_KIDS: Kid[] = [
+  { id: "Sebastian", name: "Sebastian", emoji: "🦊", color: "#4f46e5" },
+  { id: "Oscar", name: "Oscar", emoji: "🐻", color: "#0891b2" },
+];
+
+export const KID_COLORS = [
+  "#4f46e5", "#0891b2", "#db2777", "#ea580c", "#16a34a", "#9333ea", "#0d9488", "#dc2626",
 ];
 
 export const BONUS_REASONS = [
@@ -20,36 +26,72 @@ export const SPEND_REASONS = ["Toys", "Sweets", "Games", "Books", "Saving up", "
 
 export function defaultState(): AppState {
   return {
+    kids: DEFAULT_KIDS.map((k) => ({ ...k })),
     settings: {
       currency: "£",
       weekly: { Sebastian: 2, Oscar: 2 },
     },
+    goals: {},
     lastAllowance: {},
     entries: { Sebastian: [], Oscar: [] },
   };
 }
 
-/** Load persisted state, merging with defaults so upgrades don't lose fields. */
+function normalizeKid(raw: Partial<Kid> | undefined, index: number): Kid {
+  const id = String(raw?.id ?? raw?.name ?? uid());
+  return {
+    id,
+    name: String(raw?.name ?? raw?.id ?? `Child ${index + 1}`),
+    emoji: String(raw?.emoji ?? "🙂"),
+    color: String(raw?.color ?? KID_COLORS[index % KID_COLORS.length]),
+  };
+}
+
+/**
+ * Upgrade any persisted/remote blob to the current shape, merging with defaults
+ * so older data (and partial writes) can't crash us or lose entries. Used by
+ * both the local loader and the cloud-sync layer.
+ */
+export function migrate(parsed: Partial<AppState> | null | undefined): AppState {
+  if (!parsed || typeof parsed !== "object") return defaultState();
+
+  const kids: Kid[] =
+    Array.isArray(parsed.kids) && parsed.kids.length > 0
+      ? parsed.kids.map((k, i) => normalizeKid(k, i))
+      : defaultState().kids;
+
+  const entries: Record<KidId, Entry[]> = {};
+  const weekly: Record<KidId, number> = {};
+  const goals: Partial<Record<KidId, Goal>> = {};
+  const lastAllowance: Partial<Record<KidId, string>> = {};
+
+  for (const kid of kids) {
+    entries[kid.id] = parsed.entries?.[kid.id] ?? [];
+    weekly[kid.id] = Number(parsed.settings?.weekly?.[kid.id]) || 0;
+    const goal = parsed.goals?.[kid.id];
+    if (goal && Number(goal.target) > 0) {
+      goals[kid.id] = { label: String(goal.label ?? ""), target: Number(goal.target) };
+    }
+    const last = parsed.lastAllowance?.[kid.id];
+    if (last) lastAllowance[kid.id] = last;
+  }
+
+  return {
+    kids,
+    settings: { currency: parsed.settings?.currency || "£", weekly },
+    goals,
+    lastAllowance,
+    entries,
+  };
+}
+
+/** Load persisted state, migrating it to the current shape. */
 export function loadState(): AppState {
   if (typeof window === "undefined") return defaultState();
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return defaultState();
-    const parsed = JSON.parse(raw) as Partial<AppState>;
-    const base = defaultState();
-    const settings: Settings = {
-      ...base.settings,
-      ...parsed.settings,
-      weekly: { ...base.settings.weekly, ...parsed.settings?.weekly },
-    };
-    return {
-      settings,
-      lastAllowance: { ...parsed.lastAllowance },
-      entries: {
-        Sebastian: parsed.entries?.Sebastian ?? [],
-        Oscar: parsed.entries?.Oscar ?? [],
-      },
-    };
+    return migrate(JSON.parse(raw) as Partial<AppState>);
   } catch (err) {
     console.error("Failed to load pocket money data; starting fresh.", err);
     return defaultState();
@@ -79,7 +121,7 @@ export function money(amount: number, currency: string): string {
 }
 
 /** Whole weeks of allowance currently owed to a kid. */
-export function weeksDue(state: AppState, kid: KidName): number {
+export function weeksDue(state: AppState, kid: KidId): number {
   const weekly = Number(state.settings.weekly[kid]) || 0;
   if (weekly <= 0) return 0;
   const last = state.lastAllowance[kid];
@@ -157,8 +199,10 @@ function mutate(updater: (state: AppState) => AppState): void {
   remotePush?.(memState);
 }
 
+// ---- Actions --------------------------------------------------------------
+
 export function addEntryAction(
-  kid: KidName,
+  kid: KidId,
   type: Exclude<Entry["type"], "allowance">,
   amount: number,
   reason: string,
@@ -170,13 +214,32 @@ export function addEntryAction(
       ...prev.entries,
       [kid]: [
         { id: uid(), type, amount: round2(amount), reason, note, date: new Date().toISOString() },
-        ...prev.entries[kid],
+        ...(prev.entries[kid] ?? []),
       ],
     },
   }));
 }
 
-export function payAllowanceAction(kid: KidName): void {
+/** Edit an existing entry's amount, reason and note (type and date unchanged). */
+export function editEntryAction(
+  kid: KidId,
+  id: string,
+  amount: number,
+  reason: string,
+  note: string,
+): void {
+  mutate((prev) => ({
+    ...prev,
+    entries: {
+      ...prev.entries,
+      [kid]: (prev.entries[kid] ?? []).map((e) =>
+        e.id === id ? { ...e, amount: round2(amount), reason, note } : e,
+      ),
+    },
+  }));
+}
+
+export function payAllowanceAction(kid: KidId): void {
   mutate((prev) => {
     const due = weeksDue(prev, kid);
     const weekly = Number(prev.settings.weekly[kid]) || 0;
@@ -194,20 +257,40 @@ export function payAllowanceAction(kid: KidName): void {
         ...prev.entries,
         [kid]: [
           { id: uid(), type: "allowance", amount: total, reason: label, note: "", date: new Date().toISOString() },
-          ...prev.entries[kid],
+          ...(prev.entries[kid] ?? []),
         ],
       },
     };
   });
 }
 
-export function deleteEntryAction(kid: KidName, id: string): void {
+export function deleteEntryAction(kid: KidId, id: string): void {
   mutate((prev) => ({
     ...prev,
-    entries: { ...prev.entries, [kid]: prev.entries[kid].filter((e) => e.id !== id) },
+    entries: { ...prev.entries, [kid]: (prev.entries[kid] ?? []).filter((e) => e.id !== id) },
   }));
 }
 
-export function updateSettingsAction(currency: string, weekly: Record<KidName, number>): void {
-  mutate((prev) => ({ ...prev, settings: { currency: currency || "£", weekly } }));
+/**
+ * Apply the whole editable settings set in one atomic update: currency, the
+ * roster of kids (add/rename/recolour/remove), their weekly allowances and
+ * savings goals. Entries and allowance clocks are preserved for kids that
+ * remain, and dropped for kids that were removed.
+ */
+export function applySettingsAction(next: {
+  currency: string;
+  kids: Kid[];
+  weekly: Record<KidId, number>;
+  goals: Partial<Record<KidId, Goal>>;
+}): void {
+  mutate((prev) => {
+    const entries: Record<KidId, Entry[]> = {};
+    const lastAllowance: Partial<Record<KidId, string>> = {};
+    for (const kid of next.kids) {
+      entries[kid.id] = prev.entries[kid.id] ?? [];
+      if (prev.lastAllowance[kid.id]) lastAllowance[kid.id] = prev.lastAllowance[kid.id];
+    }
+    const settings: Settings = { currency: next.currency || "£", weekly: next.weekly };
+    return { kids: next.kids, settings, goals: next.goals, lastAllowance, entries };
+  });
 }

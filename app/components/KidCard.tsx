@@ -1,23 +1,25 @@
 "use client";
 
-import type { AppState, Entry, KidName } from "../lib/types";
+import type { AppState, Entry, Kid } from "../lib/types";
 import { balance, formatDate, money, weeksDue } from "../lib/store";
 
 interface Props {
-  kid: { name: KidName; emoji: string; color: string };
+  kid: Kid;
   state: AppState;
   onPayAllowance: () => void;
   onBonus: () => void;
   onSpend: () => void;
+  onEdit: (entry: Entry) => void;
   onDelete: (id: string) => void;
 }
 
-export default function KidCard({ kid, state, onPayAllowance, onBonus, onSpend, onDelete }: Props) {
+export default function KidCard({ kid, state, onPayAllowance, onBonus, onSpend, onEdit, onDelete }: Props) {
   const currency = state.settings.currency;
-  const entries = state.entries[kid.name];
+  const entries = state.entries[kid.id] ?? [];
   const bal = balance(entries);
-  const due = weeksDue(state, kid.name);
-  const weekly = Number(state.settings.weekly[kid.name]) || 0;
+  const due = weeksDue(state, kid.id);
+  const weekly = Number(state.settings.weekly[kid.id]) || 0;
+  const goal = state.goals[kid.id];
 
   return (
     <section className="flex flex-col overflow-hidden rounded-2xl bg-white shadow-sm">
@@ -47,6 +49,8 @@ export default function KidCard({ kid, state, onPayAllowance, onBonus, onSpend, 
             <>Allowance {money(weekly, currency)}/week</>
           )}
         </div>
+
+        {goal && goal.target > 0 && <GoalBar goal={goal} balance={bal} currency={currency} color={kid.color} />}
       </div>
 
       <div className="grid grid-cols-3 gap-2 p-3.5">
@@ -70,12 +74,51 @@ export default function KidCard({ kid, state, onPayAllowance, onBonus, onSpend, 
         ) : (
           <ul className="max-h-80 overflow-y-auto">
             {entries.map((e) => (
-              <EntryRow key={e.id} entry={e} currency={currency} onDelete={() => onDelete(e.id)} />
+              <EntryRow
+                key={e.id}
+                entry={e}
+                currency={currency}
+                onEdit={() => onEdit(e)}
+                onDelete={() => onDelete(e.id)}
+              />
             ))}
           </ul>
         )}
       </div>
     </section>
+  );
+}
+
+function GoalBar({
+  goal,
+  balance,
+  currency,
+  color,
+}: {
+  goal: { label: string; target: number };
+  balance: number;
+  currency: string;
+  color: string;
+}) {
+  const pct = Math.max(0, Math.min(100, (balance / goal.target) * 100));
+  const reached = balance >= goal.target;
+  return (
+    <div className="mt-3">
+      <div className="mb-1 flex items-center justify-between text-xs">
+        <span className="font-semibold text-gray-600">
+          🎯 {goal.label || "Goal"}
+        </span>
+        <span className={reached ? "font-semibold text-green-600" : "text-gray-500"}>
+          {reached ? "Reached! 🎉" : `${money(balance, currency)} / ${money(goal.target, currency)}`}
+        </span>
+      </div>
+      <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+        <div
+          className="h-full rounded-full transition-all"
+          style={{ width: `${pct}%`, background: reached ? "#16a34a" : color }}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -107,19 +150,21 @@ function ActionButton({
 function EntryRow({
   entry,
   currency,
+  onEdit,
   onDelete,
 }: {
   entry: Entry;
   currency: string;
+  onEdit: () => void;
   onDelete: () => void;
 }) {
   const isSpend = entry.type === "spend";
-  const tone =
-    entry.type === "allowance"
-      ? { bg: "bg-blue-100", icon: "📅" }
-      : isSpend
-        ? { bg: "bg-red-100", icon: "🛍️" }
-        : { bg: "bg-green-100", icon: "⭐" };
+  const isAllowance = entry.type === "allowance";
+  const tone = isAllowance
+    ? { bg: "bg-blue-100", icon: "📅" }
+    : isSpend
+      ? { bg: "bg-red-100", icon: "🛍️" }
+      : { bg: "bg-green-100", icon: "⭐" };
   const title = [entry.reason, entry.note].filter(Boolean).join(" — ") || (isSpend ? "Spend" : "Bonus");
   const amountText = (isSpend ? "-" : "+") + money(entry.amount, currency).replace("-", "");
 
@@ -143,10 +188,20 @@ function EntryRow({
       >
         {amountText}
       </span>
+      {/* Allowance entries are auto-generated, so only bonus/spend are editable. */}
+      {!isAllowance && (
+        <button
+          onClick={onEdit}
+          title="Edit"
+          className="px-1 text-gray-400 opacity-0 transition hover:text-indigo-600 group-hover:opacity-100"
+        >
+          ✎
+        </button>
+      )}
       <button
         onClick={handleDelete}
         title="Delete"
-        className="px-1.5 text-gray-400 opacity-0 transition hover:text-red-600 group-hover:opacity-100"
+        className="px-1 text-gray-400 opacity-0 transition hover:text-red-600 group-hover:opacity-100"
       >
         ✕
       </button>

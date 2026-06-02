@@ -1,24 +1,31 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { KidName } from "../lib/types";
 import { BONUS_REASONS, SPEND_REASONS } from "../lib/store";
 
 interface Props {
-  kid: KidName;
+  kidName: string;
   type: "bonus" | "spend";
   currency: string;
+  /** When provided, the modal edits an existing entry instead of adding one. */
+  initial?: { amount: number; reason: string; note: string };
   onClose: () => void;
   onSubmit: (amount: number, reason: string, note: string) => void;
 }
 
-export default function EntryModal({ kid, type, currency, onClose, onSubmit }: Props) {
+export default function EntryModal({ kidName, type, currency, initial, onClose, onSubmit }: Props) {
   const isBonus = type === "bonus";
-  const reasons = isBonus ? BONUS_REASONS : SPEND_REASONS;
+  const isEdit = initial !== undefined;
+  // Keep a custom saved reason selectable even if it's not in the standard list.
+  const baseReasons = isBonus ? BONUS_REASONS : SPEND_REASONS;
+  const reasons =
+    initial && !baseReasons.includes(initial.reason)
+      ? [initial.reason, ...baseReasons]
+      : baseReasons;
 
-  const [amount, setAmount] = useState("");
-  const [reason, setReason] = useState(reasons[0]);
-  const [note, setNote] = useState("");
+  const [amount, setAmount] = useState(initial ? String(initial.amount) : "");
+  const [reason, setReason] = useState(initial?.reason ?? reasons[0]);
+  const [note, setNote] = useState(initial?.note ?? "");
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -36,8 +43,9 @@ export default function EntryModal({ kid, type, currency, onClose, onSubmit }: P
   return (
     <Backdrop onClose={onClose}>
       <h2 className="mb-4 text-lg font-bold text-gray-900">
-        {isBonus ? "Add bonus for " : "Record spend for "}
-        {kid}
+        {isEdit ? "Edit " : isBonus ? "Add bonus for " : "Record spend for "}
+        {isEdit ? (isBonus ? "bonus" : "spend") : kidName}
+        {isEdit && ` — ${kidName}`}
       </h2>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <Field label="Amount">
@@ -94,7 +102,7 @@ export default function EntryModal({ kid, type, currency, onClose, onSubmit }: P
             type="submit"
             className="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:brightness-95"
           >
-            {isBonus ? "Add bonus" : "Record spend"}
+            {isEdit ? "Save changes" : isBonus ? "Add bonus" : "Record spend"}
           </button>
         </div>
       </form>
