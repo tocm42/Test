@@ -1,63 +1,56 @@
-# 30-Day Paper Trader
+# 💰 Pocket Money Tracker
 
-AI-powered paper trading simulation — start with £500 in virtual cash and grow your portfolio over 30 days using real market research.
+A simple pocket money tracker for **Sebastian** and **Oscar**. Each child gets a
+guaranteed weekly allowance, can earn special bonuses for being helpful or
+gracious, and their spending is tracked too — so you always know the current
+balance.
 
-![Screenshot placeholder](screenshot.png)
+Built with **Next.js (App Router)**, **TypeScript** and **Tailwind CSS**. Data is
+stored locally in the browser (`localStorage`) — no backend or database needed.
 
-## Setup
+## Features
+
+- **Two children** — Sebastian and Oscar, each with their own balance and history.
+- **Weekly allowance** — a configurable minimum amount per week. The app counts
+  how many whole weeks are owed and pays them with one tap, catching up if you
+  missed a few weeks.
+- **Bonus money** — award extra for *being helpful*, *being gracious*, good
+  behaviour or chores, each with an optional note.
+- **Spending** — record what each child spends, and balances update automatically.
+- **Full history** — every allowance, bonus and spend is listed, and can be
+  deleted if you make a mistake.
+- **Settings** — change the currency symbol and each child's weekly amount.
+- **Export** — download all data as JSON for backup.
+
+## Getting started
 
 ```bash
-git clone <your-repo-url>
-cd paper-trader
 npm install
-```
-
-Add your Anthropic API key to `.env.local`:
-
-```
-ANTHROPIC_API_KEY=your_key_here
-```
-
-Start the dev server:
-
-```bash
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
 
-## How it works
+To build for production:
 
-1. **AI research** — Click "Get Suggestions" to call Claude with web search enabled. Claude searches for current stock market news and returns 3 stock picks with prices, conviction levels, and rationale.
+```bash
+npm run build
+npm start
+```
 
-2. **Buy stocks** — Each suggestion card shows the ticker, price (in GBP), and a conviction-based share quantity suggestion. Buy what looks promising.
+> **Note:** data lives in the browser's local storage, so use the same
+> browser/device to keep a continuous history, and use **Export data** in
+> Settings (⚙️) to keep a backup.
 
-3. **Price simulation** — When you buy a stock, a 30-day forward price trajectory is generated using a volatility-calibrated random walk (Box-Muller Gaussian). Each volatility profile (low/medium/high/vhigh) has a different mean return and standard deviation. Prices update each time you advance a day.
+## Project structure
 
-4. **Advance days** — Step through 30 days, watching your portfolio value change. Sell holdings to lock in gains (or cut losses). Get new AI suggestions any time.
-
-5. **Challenge complete** — After 30 days, see your final return, performance chart, and best/worst trades.
-
-No real money is involved. This is a simulation for entertainment and education.
-
-## Tech stack
-
-- **Next.js 14+** (App Router, TypeScript)
-- **Tailwind CSS** for styling
-- **Anthropic Claude API** with web search for AI stock research
-- **Recharts** for portfolio performance charts
-- **Lucide React** for icons
-- **localStorage** for state persistence (no database)
-
-## Deployment (Vercel)
-
-1. Push this repository to GitHub
-2. Import the project into [Vercel](https://vercel.com)
-3. Add `ANTHROPIC_API_KEY` as an environment variable in your Vercel project settings
-4. Deploy
-
-The API route (`/api/suggestions`) runs as a serverless function automatically — no extra configuration needed.
-
-## Disclaimer
-
-This application uses virtual money only. No real financial transactions take place. Stock prices in the simulation are based on AI research but use simulated price trajectories. This is not financial advice.
+| Path                              | Purpose                                   |
+|-----------------------------------|-------------------------------------------|
+| `app/page.tsx`                    | Main page, wires state to the UI          |
+| `app/layout.tsx`                  | Root layout and metadata                  |
+| `app/lib/types.ts`                | Shared TypeScript types                    |
+| `app/lib/store.ts`                | Constants, persistence and pure helpers   |
+| `app/lib/usePocketMoney.ts`       | State hook with allowance/bonus/spend logic |
+| `app/components/KidCard.tsx`      | Per-child card with balance and history   |
+| `app/components/EntryModal.tsx`   | Add-bonus / record-spend dialog           |
+| `app/components/SettingsModal.tsx`| Currency and weekly-amount settings       |
