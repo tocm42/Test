@@ -135,10 +135,26 @@ export function getServerSnapshot(): AppState {
   return SERVER_SNAPSHOT;
 }
 
+// Optional cloud-sync hook. When connected, the sync layer registers a pusher
+// here so every local mutation is also sent (encrypted) to the shared backend.
+let remotePush: ((state: AppState) => void) | null = null;
+
+export function setRemotePush(fn: ((state: AppState) => void) | null): void {
+  remotePush = fn;
+}
+
+/** Replace local state with one received from the cloud (does not re-push). */
+export function applyRemoteState(state: AppState): void {
+  memState = state;
+  saveState(state);
+  listeners.forEach((l) => l());
+}
+
 function mutate(updater: (state: AppState) => AppState): void {
   memState = updater(getSnapshot());
   saveState(memState);
   listeners.forEach((l) => l());
+  remotePush?.(memState);
 }
 
 export function addEntryAction(

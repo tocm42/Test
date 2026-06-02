@@ -36,6 +36,10 @@ jobs:
         env:
           # Serve under /<repo> on github.io.
           BASE_PATH: /${{ github.event.repository.name }}
+          # Cloud sync config (set as repository Variables, not Secrets — these
+          # are public by design and the data is encrypted with the family PIN).
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
         run: npm run build
 
       - name: Disable Jekyll processing

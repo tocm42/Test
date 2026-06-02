@@ -8,8 +8,18 @@ import {
   subscribe,
   updateSettingsAction,
 } from "./store";
+import { getStatus, type SyncStatus, subscribeStatus } from "./sync";
 
 const noopSubscribe = () => () => {};
+
+/** Live cloud-sync status (always "disabled" during SSR / when not configured). */
+export function useSyncStatus(): SyncStatus {
+  return useSyncExternalStore<SyncStatus>(
+    subscribeStatus,
+    getStatus,
+    () => "disabled",
+  );
+}
 
 export function usePocketMoney() {
   const state = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
