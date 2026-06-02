@@ -188,14 +188,15 @@ function EntryRow({
       >
         {amountText}
       </span>
-      {/* Allowance entries are auto-generated, so only bonus/spend are editable.
-          Buttons stay visible (no hover-only) so they work on touch screens. */}
+      {/* Always-visible action chips (no hover-only) so they work on touch.
+          Allowance entries are auto-generated, so only bonus/spend can be edited
+          — but any entry, allowance included, can be deleted. */}
       {!isAllowance && (
         <button
           onClick={onEdit}
           title="Edit"
           aria-label="Edit entry"
-          className="px-1.5 py-1 text-gray-400 transition hover:text-indigo-600"
+          className="grid h-8 w-8 flex-none place-items-center rounded-lg bg-gray-100 text-sm text-gray-500 transition hover:bg-indigo-100 hover:text-indigo-600"
         >
           ✎
         </button>
@@ -204,9 +205,9 @@ function EntryRow({
         onClick={handleDelete}
         title="Delete"
         aria-label="Delete entry"
-        className="px-1.5 py-1 text-gray-400 transition hover:text-red-600"
+        className="grid h-8 w-8 flex-none place-items-center rounded-lg bg-gray-100 text-sm text-gray-500 transition hover:bg-red-100 hover:text-red-600"
       >
-        ✕
+        🗑️
       </button>
     </li>
   );
