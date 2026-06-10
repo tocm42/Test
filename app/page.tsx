@@ -18,7 +18,7 @@ const SYNC_BADGE: Record<string, { label: string; className: string } | null> = 
 };
 
 export default function Home() {
-  const { state, hydrated, addEntry, editEntry, payAllowance, accrueAllowance, deleteEntry, applySettings } =
+  const { state, hydrated, addEntry, editEntry, accrueAllowance, deleteEntry, applySettings } =
     usePocketMoney();
   const syncStatus = useSyncStatus();
   const [entryModal, setEntryModal] = useState<{
@@ -98,7 +98,6 @@ export default function Home() {
               key={kid.id}
               kid={kid}
               state={state}
-              onPayAllowance={() => payAllowance(kid.id)}
               onBonus={() => setEntryModal({ kidId: kid.id, kidName: kid.name, type: "bonus" })}
               onSpend={() => setEntryModal({ kidId: kid.id, kidName: kid.name, type: "spend" })}
               onEdit={(entry) =>

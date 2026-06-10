@@ -277,43 +277,54 @@ export function editEntryAction(
   }));
 }
 
-/** Core accrual for one kid: add any owed weeks (up to the latest Saturday
- * 07:00) and advance the clock. Uses a deterministic entry id per boundary so
- * two devices accruing at once can't double-pay the same week. */
+/** The Saturday-07:00 boundary one week before `b`. */
+function prevBoundary(b: number): number {
+  return lastBoundary(b - 1000);
+}
+
+/**
+ * Add any missing Saturday-07:00 allowance entries for one kid — from the week
+ * after their most recent allowance up to the latest boundary. Derived purely
+ * from the entries themselves (each week has a deterministic id), so it stays
+ * correct no matter what's been deleted, and two devices can't double-pay.
+ */
 function accrueKid(prev: AppState, kid: KidId, now: number): AppState {
   const weekly = Number(prev.settings.weekly[kid]) || 0;
   if (weekly <= 0) return prev;
-  const due = boundariesBetween(anchorFor(prev, kid), now);
-  if (due <= 0) return prev;
 
-  const boundary = lastBoundary(now);
-  const boundaryISO = new Date(boundary).toISOString();
-  const id = `alw-${kid}-${boundary}`;
-  const existing = prev.entries[kid] ?? [];
-
-  // Already recorded for this boundary (e.g. another device beat us) — just
-  // make sure the clock is advanced.
-  if (existing.some((e) => e.id === id)) {
-    return { ...prev, lastAllowance: { ...prev.lastAllowance, [kid]: boundaryISO } };
+  const target = lastBoundary(now);
+  const entries = prev.entries[kid] ?? [];
+  const covered = new Set<number>();
+  for (const e of entries) {
+    if (e.type === "allowance") covered.add(lastBoundary(new Date(e.date).getTime()));
   }
+  const latestCovered = covered.size ? Math.max(...covered) : undefined;
 
-  const total = round2(weekly * due);
-  const label = due === 1 ? "Weekly allowance" : `Weekly allowance (${due} weeks)`;
+  // New kid (no allowance yet) → just grant the current week. Otherwise fill
+  // every Saturday from the week after their last allowance up to this one.
+  const floor = latestCovered ?? target - 1;
+  const missing: number[] = [];
+  for (let b = target; b > floor && missing.length < 60; b = prevBoundary(b)) {
+    if (!covered.has(b)) missing.push(b);
+  }
+  if (missing.length === 0) return prev;
+
+  const added: Entry[] = missing.map((boundary) => ({
+    id: `alw-${kid}-${boundary}`,
+    type: "allowance",
+    amount: round2(weekly),
+    reason: "Weekly allowance",
+    note: "",
+    date: new Date(boundary).toISOString(),
+  }));
+  const merged = [...added, ...entries].sort(
+    (a, z) => new Date(z.date).getTime() - new Date(a.date).getTime(),
+  );
   return {
     ...prev,
-    lastAllowance: { ...prev.lastAllowance, [kid]: boundaryISO },
-    entries: {
-      ...prev.entries,
-      [kid]: [
-        { id, type: "allowance", amount: total, reason: label, note: "", date: boundaryISO },
-        ...existing,
-      ],
-    },
+    lastAllowance: { ...prev.lastAllowance, [kid]: new Date(target).toISOString() },
+    entries: { ...prev.entries, [kid]: merged },
   };
-}
-
-export function payAllowanceAction(kid: KidId): void {
-  mutate((prev) => accrueKid(prev, kid, Date.now()));
 }
 
 /** Auto-add any allowance owed for every kid. Safe to call often: it only

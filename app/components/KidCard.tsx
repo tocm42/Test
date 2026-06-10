@@ -1,23 +1,21 @@
 "use client";
 
 import type { AppState, Entry, Kid } from "../lib/types";
-import { balance, formatDate, money, weeksDue } from "../lib/store";
+import { balance, formatDate, money } from "../lib/store";
 
 interface Props {
   kid: Kid;
   state: AppState;
-  onPayAllowance: () => void;
   onBonus: () => void;
   onSpend: () => void;
   onEdit: (entry: Entry) => void;
   onDelete: (id: string) => void;
 }
 
-export default function KidCard({ kid, state, onPayAllowance, onBonus, onSpend, onEdit, onDelete }: Props) {
+export default function KidCard({ kid, state, onBonus, onSpend, onEdit, onDelete }: Props) {
   const currency = state.settings.currency;
   const entries = state.entries[kid.id] ?? [];
   const bal = balance(entries);
-  const due = weeksDue(state, kid.id);
   const weekly = Number(state.settings.weekly[kid.id]) || 0;
   const goal = state.goals[kid.id];
 
@@ -41,26 +39,17 @@ export default function KidCard({ kid, state, onPayAllowance, onBonus, onSpend, 
           {money(bal, currency)}
         </div>
         <div className="mt-1 text-sm text-gray-500">
-          {due > 0 ? (
-            <span className="font-semibold text-blue-600">
-              {due} week{due > 1 ? "s" : ""} of allowance ready ({money(weekly * due, currency)})
-            </span>
+          {weekly > 0 ? (
+            <>📅 {money(weekly, currency)}/week · added automatically each Saturday</>
           ) : (
-            <>Allowance {money(weekly, currency)}/week</>
+            <span className="text-amber-600">No weekly allowance set — add one in Settings</span>
           )}
         </div>
 
         {goal && goal.target > 0 && <GoalBar goal={goal} balance={bal} currency={currency} color={kid.color} />}
       </div>
 
-      <div className="grid grid-cols-3 gap-2 p-3.5">
-        <ActionButton
-          label="Pay allowance"
-          icon="📅"
-          disabled={due <= 0}
-          onClick={onPayAllowance}
-          className="bg-blue-100 text-blue-700"
-        />
+      <div className="grid grid-cols-2 gap-2 p-3.5">
         <ActionButton label="Bonus" icon="⭐" onClick={onBonus} className="bg-green-100 text-green-700" />
         <ActionButton label="Spend" icon="🛍️" onClick={onSpend} className="bg-red-100 text-red-600" />
       </div>

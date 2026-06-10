@@ -7,7 +7,6 @@ import {
   editEntryAction,
   getServerSnapshot,
   getSnapshot,
-  payAllowanceAction,
   subscribe,
 } from "./store";
 import { getStatus, type SyncStatus, subscribeStatus } from "./sync";
@@ -38,7 +37,6 @@ export function usePocketMoney() {
     hydrated,
     addEntry: addEntryAction,
     editEntry: editEntryAction,
-    payAllowance: payAllowanceAction,
     accrueAllowance: accrueAllowanceAction,
     deleteEntry: deleteEntryAction,
     applySettings: applySettingsAction,
