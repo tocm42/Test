@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#4338ca"/>
+    </linearGradient>
+    <linearGradient id="pig" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fbb6da"/>
+      <stop offset="1" stop-color="#ec4899"/>
+    </linearGradient>
+  </defs>
+
+  <!-- rounded app-icon background -->
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+
+  <!-- coin dropping into the slot -->
+  <circle cx="252" cy="118" r="48" fill="#fcd34d" stroke="#f59e0b" stroke-width="7"/>
+  <text x="252" y="139" font-family="Arial, Helvetica, sans-serif" font-size="60" font-weight="bold"
+        fill="#b45309" text-anchor="middle">£</text>
+
+  <!-- back legs (peek out below the body) -->
+  <rect x="170" y="378" width="48" height="74" rx="22" fill="#db2777"/>
+  <rect x="300" y="378" width="48" height="74" rx="22" fill="#db2777"/>
+
+  <!-- ear -->
+  <path d="M206 196 l52 8 -22 50 z" fill="#db2777"/>
+
+  <!-- body -->
+  <ellipse cx="260" cy="302" rx="152" ry="120" fill="url(#pig)"/>
+
+  <!-- rosy cheek -->
+  <ellipse cx="318" cy="322" rx="26" ry="18" fill="#f9a8d4" opacity="0.8"/>
+
+  <!-- coin slot on the back -->
+  <rect x="222" y="210" width="96" height="16" rx="8" fill="#9d174d"/>
+
+  <!-- eye -->
+  <circle cx="300" cy="266" r="13" fill="#831843"/>
+  <circle cx="304" cy="262" r="4" fill="#fff"/>
+
+  <!-- snout -->
+  <ellipse cx="382" cy="306" rx="50" ry="58" fill="#f472b6"/>
+  <ellipse cx="368" cy="306" rx="10" ry="17" fill="#9d174d"/>
+  <ellipse cx="396" cy="306" rx="10" ry="17" fill="#9d174d"/>
+</svg>
