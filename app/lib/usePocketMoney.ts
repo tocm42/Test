@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import {
+  accrueAllowanceAction,
   addEntryAction,
   applySettingsAction,
   deleteEntryAction,
@@ -38,6 +39,7 @@ export function usePocketMoney() {
     addEntry: addEntryAction,
     editEntry: editEntryAction,
     payAllowance: payAllowanceAction,
+    accrueAllowance: accrueAllowanceAction,
     deleteEntry: deleteEntryAction,
     applySettings: applySettingsAction,
   };

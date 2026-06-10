@@ -18,7 +18,7 @@ const SYNC_BADGE: Record<string, { label: string; className: string } | null> = 
 };
 
 export default function Home() {
-  const { state, hydrated, addEntry, editEntry, payAllowance, deleteEntry, applySettings } =
+  const { state, hydrated, addEntry, editEntry, payAllowance, accrueAllowance, deleteEntry, applySettings } =
     usePocketMoney();
   const syncStatus = useSyncStatus();
   const [entryModal, setEntryModal] = useState<{
@@ -33,6 +33,24 @@ export default function Home() {
   useEffect(() => {
     initSync();
   }, []);
+
+  // Auto-add weekly allowance (Saturdays 07:00) whenever the app is open or
+  // brought back into focus, plus a periodic check for a left-open device.
+  // Runs once data is ready and, when sync is on, once the cloud has loaded —
+  // so we never accrue against stale local state.
+  useEffect(() => {
+    if (!hydrated || (syncStatus !== "disabled" && syncStatus !== "synced")) return;
+    accrueAllowance();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") accrueAllowance();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    const interval = setInterval(accrueAllowance, 15 * 60 * 1000);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      clearInterval(interval);
+    };
+  }, [hydrated, syncStatus, accrueAllowance]);
 
   // Block the app behind the PIN prompt until this device is unlocked.
   if (syncStatus === "locked" || syncStatus === "connecting") {

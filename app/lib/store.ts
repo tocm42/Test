@@ -37,6 +37,13 @@ export function defaultState(): AppState {
   };
 }
 
+/** Drop entries sharing an id (can happen if two devices auto-paid the same
+ * allowance week before syncing). Keeps the first occurrence. */
+function dedupeById(list: Entry[]): Entry[] {
+  const seen = new Set<string>();
+  return list.filter((e) => (seen.has(e.id) ? false : (seen.add(e.id), true)));
+}
+
 function normalizeKid(raw: Partial<Kid> | undefined, index: number): Kid {
   const id = String(raw?.id ?? raw?.name ?? uid());
   return {
@@ -66,7 +73,7 @@ export function migrate(parsed: Partial<AppState> | null | undefined): AppState 
   const lastAllowance: Partial<Record<KidId, string>> = {};
 
   for (const kid of kids) {
-    entries[kid.id] = parsed.entries?.[kid.id] ?? [];
+    entries[kid.id] = dedupeById(parsed.entries?.[kid.id] ?? []);
     weekly[kid.id] = Number(parsed.settings?.weekly?.[kid.id]) || 0;
     const goal = parsed.goals?.[kid.id];
     if (goal && Number(goal.target) > 0) {
@@ -120,14 +127,45 @@ export function money(amount: number, currency: string): string {
   return `${sign}${currency}${Math.abs(amount).toFixed(2)}`;
 }
 
+// ---- Allowance schedule (Saturdays at 07:00, local time) ------------------
+
+const ALLOWANCE_DAY = 6; // 0 = Sunday … 6 = Saturday
+const ALLOWANCE_HOUR = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The most recent Saturday 07:00 (local) at or before `nowMs`. */
+function lastBoundary(nowMs: number): number {
+  const d = new Date(nowMs);
+  let t = new Date(d.getFullYear(), d.getMonth(), d.getDate(), ALLOWANCE_HOUR, 0, 0, 0).getTime();
+  if (t > nowMs) t -= DAY_MS; // today's 07:00 hasn't happened yet
+  while (new Date(t).getDay() !== ALLOWANCE_DAY) t -= DAY_MS;
+  return t;
+}
+
+/** Count Saturday-07:00 boundaries strictly after `sinceMs`, up to `nowMs`. */
+function boundariesBetween(sinceMs: number, nowMs: number): number {
+  let count = 0;
+  let b = lastBoundary(nowMs);
+  while (b > sinceMs && count < 260) {
+    count++;
+    b = lastBoundary(b - 1000);
+  }
+  return count;
+}
+
+/** Where a kid's allowance clock starts: their last payment, or — if never
+ * paid — one week back, so the current week is granted exactly once. */
+function anchorFor(state: AppState, kid: KidId): number {
+  const last = state.lastAllowance[kid];
+  if (last) return new Date(last).getTime();
+  return lastBoundary(Date.now()) - 7 * DAY_MS;
+}
+
 /** Whole weeks of allowance currently owed to a kid. */
 export function weeksDue(state: AppState, kid: KidId): number {
   const weekly = Number(state.settings.weekly[kid]) || 0;
   if (weekly <= 0) return 0;
-  const last = state.lastAllowance[kid];
-  if (!last) return 1; // never paid → first week is available
-  const elapsed = Date.now() - new Date(last).getTime();
-  return Math.max(0, Math.floor(elapsed / WEEK_MS));
+  return boundariesBetween(anchorFor(state, kid), Date.now());
 }
 
 export function uid(): string {
@@ -239,29 +277,51 @@ export function editEntryAction(
   }));
 }
 
+/** Core accrual for one kid: add any owed weeks (up to the latest Saturday
+ * 07:00) and advance the clock. Uses a deterministic entry id per boundary so
+ * two devices accruing at once can't double-pay the same week. */
+function accrueKid(prev: AppState, kid: KidId, now: number): AppState {
+  const weekly = Number(prev.settings.weekly[kid]) || 0;
+  if (weekly <= 0) return prev;
+  const due = boundariesBetween(anchorFor(prev, kid), now);
+  if (due <= 0) return prev;
+
+  const boundary = lastBoundary(now);
+  const boundaryISO = new Date(boundary).toISOString();
+  const id = `alw-${kid}-${boundary}`;
+  const existing = prev.entries[kid] ?? [];
+
+  // Already recorded for this boundary (e.g. another device beat us) — just
+  // make sure the clock is advanced.
+  if (existing.some((e) => e.id === id)) {
+    return { ...prev, lastAllowance: { ...prev.lastAllowance, [kid]: boundaryISO } };
+  }
+
+  const total = round2(weekly * due);
+  const label = due === 1 ? "Weekly allowance" : `Weekly allowance (${due} weeks)`;
+  return {
+    ...prev,
+    lastAllowance: { ...prev.lastAllowance, [kid]: boundaryISO },
+    entries: {
+      ...prev.entries,
+      [kid]: [
+        { id, type: "allowance", amount: total, reason: label, note: "", date: boundaryISO },
+        ...existing,
+      ],
+    },
+  };
+}
+
 export function payAllowanceAction(kid: KidId): void {
-  mutate((prev) => {
-    const due = weeksDue(prev, kid);
-    const weekly = Number(prev.settings.weekly[kid]) || 0;
-    if (due <= 0 || weekly <= 0) return prev;
+  mutate((prev) => accrueKid(prev, kid, Date.now()));
+}
 
-    const total = round2(weekly * due);
-    const label = due === 1 ? "Weekly allowance" : `Weekly allowance (${due} weeks)`;
-    // Advance the clock by the whole weeks paid so partial weeks aren't lost.
-    const base = prev.lastAllowance[kid] ? new Date(prev.lastAllowance[kid] as string).getTime() : Date.now();
-
-    return {
-      ...prev,
-      lastAllowance: { ...prev.lastAllowance, [kid]: new Date(base + due * WEEK_MS).toISOString() },
-      entries: {
-        ...prev.entries,
-        [kid]: [
-          { id: uid(), type: "allowance", amount: total, reason: label, note: "", date: new Date().toISOString() },
-          ...(prev.entries[kid] ?? []),
-        ],
-      },
-    };
-  });
+/** Auto-add any allowance owed for every kid. Safe to call often: it only
+ * writes when something is actually due. */
+export function accrueAllowanceAction(): void {
+  const prev = getSnapshot();
+  const next = prev.kids.reduce((s, k) => accrueKid(s, k.id, Date.now()), prev);
+  if (next !== prev) mutate(() => next);
 }
 
 export function deleteEntryAction(kid: KidId, id: string): void {
