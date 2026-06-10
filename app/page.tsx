@@ -34,6 +34,13 @@ export default function Home() {
     initSync();
   }, []);
 
+  // Register the service worker so the app is installable / works offline.
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const base = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+    navigator.serviceWorker.register(`${base}/sw.js`).catch(() => {});
+  }, []);
+
   // Auto-add weekly allowance (Saturdays 07:00) whenever the app is open or
   // brought back into focus, plus a periodic check for a left-open device.
   // Runs once data is ready and, when sync is on, once the cloud has loaded —

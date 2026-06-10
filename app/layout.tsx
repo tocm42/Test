@@ -1,9 +1,15 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Pocket Money Tracker",
-  description: "Track Sebastian and Oscar's weekly allowance, bonuses and spending.",
+  description: "Track each child's weekly allowance, bonuses, spending and savings goals.",
+  applicationName: "Pocket Money",
+  appleWebApp: { capable: true, statusBarStyle: "default", title: "Pocket Money" },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#4338ca",
 };
 
 export default function RootLayout({

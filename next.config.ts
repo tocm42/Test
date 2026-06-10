@@ -10,6 +10,9 @@ const nextConfig: NextConfig = {
   basePath,
   images: { unoptimized: true },
   trailingSlash: true,
+  // Exposed to the client so the service worker can be registered at the
+  // correct sub-path on GitHub Pages.
+  env: { NEXT_PUBLIC_BASE_PATH: basePath },
 };
 
 export default nextConfig;
