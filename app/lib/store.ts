@@ -1,7 +1,6 @@
 import type { AppState, Entry, Goal, Kid, KidId, Settings } from "./types";
 
 export const STORAGE_KEY = "pocketMoney.v1";
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Seed children for a brand-new install. Their ids match the original names so
  * data created before kids were configurable migrates without any loss. */
@@ -44,6 +43,19 @@ function dedupeById(list: Entry[]): Entry[] {
   return list.filter((e) => (seen.has(e.id) ? false : (seen.add(e.id), true)));
 }
 
+/** Keep only one allowance entry per week, cleaning up any duplicates created
+ * by the earlier DST-sensitive scheduler. Keeps the first (newest) occurrence;
+ * non-allowance entries pass through untouched. Weeks are matched by their
+ * Saturday calendar date, so differently-timestamped duplicates still collapse. */
+function dedupeAllowanceByWeek(list: Entry[]): Entry[] {
+  const weeks = new Set<string>();
+  return list.filter((e) => {
+    if (e.type !== "allowance") return true;
+    const key = weekKeyOf(e.date);
+    return weeks.has(key) ? false : (weeks.add(key), true);
+  });
+}
+
 function normalizeKid(raw: Partial<Kid> | undefined, index: number): Kid {
   const id = String(raw?.id ?? raw?.name ?? uid());
   return {
@@ -73,7 +85,7 @@ export function migrate(parsed: Partial<AppState> | null | undefined): AppState 
   const lastAllowance: Partial<Record<KidId, string>> = {};
 
   for (const kid of kids) {
-    entries[kid.id] = dedupeById(parsed.entries?.[kid.id] ?? []);
+    entries[kid.id] = dedupeAllowanceByWeek(dedupeById(parsed.entries?.[kid.id] ?? []));
     weekly[kid.id] = Number(parsed.settings?.weekly?.[kid.id]) || 0;
     const goal = parsed.goals?.[kid.id];
     if (goal && Number(goal.target) > 0) {
@@ -129,43 +141,40 @@ export function money(amount: number, currency: string): string {
 
 // ---- Allowance schedule (Saturdays at 07:00, local time) ------------------
 
+// Weeks are identified by their Saturday's LOCAL CALENDAR DATE (e.g.
+// "2026-10-24"), never a millisecond timestamp. All stepping is done with
+// setDate(), which moves by whole calendar days and keeps the clock at 07:00
+// local — so it stays correct across daylight-saving changes (a timestamp-ms
+// approach drifts by an hour at the spring/autumn change and re-adds a week).
 const ALLOWANCE_DAY = 6; // 0 = Sunday … 6 = Saturday
 const ALLOWANCE_HOUR = 7;
-const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** The most recent Saturday 07:00 (local) at or before `nowMs`. */
-function lastBoundary(nowMs: number): number {
-  const d = new Date(nowMs);
-  let t = new Date(d.getFullYear(), d.getMonth(), d.getDate(), ALLOWANCE_HOUR, 0, 0, 0).getTime();
-  if (t > nowMs) t -= DAY_MS; // today's 07:00 hasn't happened yet
-  while (new Date(t).getDay() !== ALLOWANCE_DAY) t -= DAY_MS;
-  return t;
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
 }
 
-/** Count Saturday-07:00 boundaries strictly after `sinceMs`, up to `nowMs`. */
-function boundariesBetween(sinceMs: number, nowMs: number): number {
-  let count = 0;
-  let b = lastBoundary(nowMs);
-  while (b > sinceMs && count < 260) {
-    count++;
-    b = lastBoundary(b - 1000);
-  }
-  return count;
+/** Local calendar-date key, e.g. "2026-10-24". */
+function dateKey(d: Date): string {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
-/** Where a kid's allowance clock starts: their last payment, or — if never
- * paid — one week back, so the current week is granted exactly once. */
-function anchorFor(state: AppState, kid: KidId): number {
-  const last = state.lastAllowance[kid];
-  if (last) return new Date(last).getTime();
-  return lastBoundary(Date.now()) - 7 * DAY_MS;
+/** The Saturday at 07:00 local on or before `d`'s calendar date. */
+function saturdayOnOrBefore(d: Date): Date {
+  const s = new Date(d.getFullYear(), d.getMonth(), d.getDate(), ALLOWANCE_HOUR, 0, 0, 0);
+  while (s.getDay() !== ALLOWANCE_DAY) s.setDate(s.getDate() - 1);
+  return s;
 }
 
-/** Whole weeks of allowance currently owed to a kid. */
-export function weeksDue(state: AppState, kid: KidId): number {
-  const weekly = Number(state.settings.weekly[kid]) || 0;
-  if (weekly <= 0) return 0;
-  return boundariesBetween(anchorFor(state, kid), Date.now());
+/** The week an allowance entry belongs to, as a Saturday date key. */
+function weekKeyOf(iso: string): string {
+  return dateKey(saturdayOnOrBefore(new Date(iso)));
+}
+
+/** The most recent Saturday 07:00 (local) that has already arrived at `now`. */
+function currentAllowanceSaturday(now: Date): Date {
+  const s = saturdayOnOrBefore(now);
+  if (s.getTime() > now.getTime()) s.setDate(s.getDate() - 7); // today's 07:00 not here yet
+  return s;
 }
 
 export function uid(): string {
@@ -179,8 +188,6 @@ export function formatDate(iso: string): string {
     year: "numeric",
   });
 }
-
-export { WEEK_MS };
 
 // ---- External store (for useSyncExternalStore) ----------------------------
 //
@@ -277,52 +284,54 @@ export function editEntryAction(
   }));
 }
 
-/** The Saturday-07:00 boundary one week before `b`. */
-function prevBoundary(b: number): number {
-  return lastBoundary(b - 1000);
-}
-
 /**
- * Add any missing Saturday-07:00 allowance entries for one kid — from the week
- * after their most recent allowance up to the latest boundary. Derived purely
- * from the entries themselves (each week has a deterministic id), so it stays
- * correct no matter what's been deleted, and two devices can't double-pay.
+ * Add any missing weekly allowance entries for one kid — from the current
+ * Saturday back to (but not including) the most recent week already paid.
+ * Weeks are keyed by their Saturday calendar date, so the same week is never
+ * paid twice, it's DST-proof, and it stays correct no matter what's been
+ * deleted. Deterministic ids let two synced devices converge without doubling.
  */
-function accrueKid(prev: AppState, kid: KidId, now: number): AppState {
+function accrueKid(prev: AppState, kid: KidId, nowMs: number): AppState {
   const weekly = Number(prev.settings.weekly[kid]) || 0;
   if (weekly <= 0) return prev;
 
-  const target = lastBoundary(now);
   const entries = prev.entries[kid] ?? [];
-  const covered = new Set<number>();
+  const coveredWeeks = new Set<string>();
+  const existingIds = new Set<string>();
   for (const e of entries) {
-    if (e.type === "allowance") covered.add(lastBoundary(new Date(e.date).getTime()));
+    existingIds.add(e.id);
+    if (e.type === "allowance") coveredWeeks.add(weekKeyOf(e.date));
   }
-  const latestCovered = covered.size ? Math.max(...covered) : undefined;
+  const isNew = coveredWeeks.size === 0;
 
-  // New kid (no allowance yet) → just grant the current week. Otherwise fill
-  // every Saturday from the week after their last allowance up to this one.
-  const floor = latestCovered ?? target - 1;
-  const missing: number[] = [];
-  for (let b = target; b > floor && missing.length < 60; b = prevBoundary(b)) {
-    if (!covered.has(b)) missing.push(b);
+  const target = currentAllowanceSaturday(new Date(nowMs));
+  const missing: Date[] = [];
+  const cursor = new Date(target);
+  for (let i = 0; i < 60; i++) {
+    if (coveredWeeks.has(dateKey(cursor))) break; // reached already-paid weeks
+    missing.push(new Date(cursor));
+    if (isNew) break; // brand-new kid → grant the current week only
+    cursor.setDate(cursor.getDate() - 7); // step back a whole calendar week
   }
-  if (missing.length === 0) return prev;
 
-  const added: Entry[] = missing.map((boundary) => ({
-    id: `alw-${kid}-${boundary}`,
-    type: "allowance",
-    amount: round2(weekly),
-    reason: "Weekly allowance",
-    note: "",
-    date: new Date(boundary).toISOString(),
-  }));
+  const added: Entry[] = missing
+    .map((sat) => ({
+      id: `alw-${kid}-${dateKey(sat)}`,
+      type: "allowance" as const,
+      amount: round2(weekly),
+      reason: "Weekly allowance",
+      note: "",
+      date: sat.toISOString(),
+    }))
+    .filter((e) => !existingIds.has(e.id)); // never duplicate an existing id
+  if (added.length === 0) return prev;
+
   const merged = [...added, ...entries].sort(
     (a, z) => new Date(z.date).getTime() - new Date(a.date).getTime(),
   );
   return {
     ...prev,
-    lastAllowance: { ...prev.lastAllowance, [kid]: new Date(target).toISOString() },
+    lastAllowance: { ...prev.lastAllowance, [kid]: target.toISOString() },
     entries: { ...prev.entries, [kid]: merged },
   };
 }
